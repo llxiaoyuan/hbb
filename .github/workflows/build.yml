@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout CI repo
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN }}
+
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ secrets.SOURCE_REPO }}
+        token: ${{ secrets.PAT_TOKEN }}
+        path: src
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Build 10 times and encrypt
+      run: |
+        Remove-Item releases -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path releases | Out-Null
+        $sln = (Get-ChildItem src\*.sln).FullName
+        for ($i = 1; $i -le 10; $i++) {
+          Write-Host "=== Build $i/10 ==="
+          msbuild $sln /p:Configuration="LLVM-Release" /p:Platform=x64 /t:Rebuild /m *> build.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "BUILD_FAILED=true" >> $env:GITHUB_ENV
+            break
+          }
+          python encrypt.py "${{ secrets.RC4_KEY }}" src/bin/LLVM-Release releases *> $null
+        }
+
+    - name: Commit and push
+      if: env.BUILD_FAILED != 'true'
+      shell: bash
+      run: |
+        rm -rf src build.log
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git rm -rf releases/ --quiet || true
+        git add releases/
+        git commit -m "update" || true
+        git push
+
+    - name: Debug build failure
+      if: env.BUILD_FAILED == 'true'
+      shell: bash
+      run: |
+        cat build.log
+        exit 1
