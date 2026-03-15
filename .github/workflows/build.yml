@@ -27,17 +27,24 @@ jobs:
 
     - name: Build 10 times and encrypt
       run: |
-        Remove-Item releases -Recurse -Force -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path releases | Out-Null
+        $oldFiles = @(Get-ChildItem releases -File | Select-Object -ExpandProperty Name)
+        $buildFailed = $false
         $sln = (Get-ChildItem src\*.sln).FullName
         for ($i = 1; $i -le 10; $i++) {
           Write-Host "=== Build $i/10 ==="
           msbuild $sln /p:Configuration="LLVM-Release" /p:Platform=x64 /t:Rebuild /m *> build.log
           if ($LASTEXITCODE -ne 0) {
+            $buildFailed = $true
             echo "BUILD_FAILED=true" >> $env:GITHUB_ENV
             break
           }
           python encrypt.py "${{ secrets.RC4_KEY }}" src/bin/LLVM-Release releases *> $null
+        }
+        if (-not $buildFailed) {
+          foreach ($f in $oldFiles) {
+            Remove-Item "releases\$f" -Force -ErrorAction SilentlyContinue
+          }
         }
 
     - name: Commit and push
