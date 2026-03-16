@@ -59,6 +59,11 @@ jobs:
         git commit -m "update" || true
         git push
 
+    - name: Notify server
+      if: env.BUILD_FAILED != 'true'
+      run: |
+        python notify.py ${{ secrets.SERVER_HOST }} ${{ secrets.SERVER_PORT }}
+
     - name: Debug build failure
       if: env.BUILD_FAILED == 'true'
       shell: bash
